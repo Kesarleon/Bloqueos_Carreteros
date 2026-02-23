@@ -83,9 +83,14 @@ def clean_text(text):
     return text
 
 @st.cache_data(ttl=300)  # Cache results for 5 minutes
-def scrape_tweets(terms=SEARCH_TERMS, limit=100):
+def scrape_tweets(terms=SEARCH_TERMS, limit=100, instance=None):
     """Scrapes tweets using ntscraper."""
-    scraper = Nitter(log_level=1, skip_instance_check=False)
+    try:
+        scraper = Nitter(log_level=1, skip_instance_check=False, instance=instance)
+    except Exception as e:
+        st.error(f"Error al inicializar el scraper: {e}")
+        return pd.DataFrame()
+
     tweets_data = []
 
     # Combine search terms into a query string with OR
@@ -104,10 +109,14 @@ def scrape_tweets(terms=SEARCH_TERMS, limit=100):
                     'Enlace': tweet['link']
                 })
         else:
-            st.warning("No se encontraron tweets o hubo un problema con la instancia de Nitter.")
+            st.warning("No se encontraron tweets. Es posible que la instancia de Nitter esté saturada.")
 
     except Exception as e:
-        st.error(f"Error al obtener tweets: {e}")
+        error_msg = str(e)
+        if "Cannot choose from an empty sequence" in error_msg:
+             st.error("⚠️ No se encontraron instancias de Nitter disponibles. Por favor, activa el 'Modo Demostración' en la barra lateral o intenta más tarde.")
+        else:
+            st.error(f"Error al obtener tweets: {e}")
         return pd.DataFrame()
 
     df = pd.DataFrame(tweets_data)
@@ -147,7 +156,10 @@ def main():
         st.cache_data.clear()
         st.rerun()
 
-    use_demo_data = st.sidebar.checkbox("Usar datos de demostración", value=False)
+    st.sidebar.markdown("---")
+    use_demo_data = st.sidebar.checkbox("Usar datos de demostración", value=False, help="Actívalo si la conexión con Nitter falla.")
+
+    nitter_instance = st.sidebar.text_input("Instancia Nitter (Opcional)", placeholder="https://nitter.net", help="Si el scraping automático falla, prueba una instancia específica como 'https://nitter.poast.org'")
 
     # Load data
     if use_demo_data:
@@ -163,7 +175,8 @@ def main():
         st.info("Mostrando datos de demostración.")
     else:
         with st.spinner("Escaneando red social X..."):
-            df = scrape_tweets(limit=search_limit)
+            instance_url = nitter_instance if nitter_instance else None
+            df = scrape_tweets(limit=search_limit, instance=instance_url)
 
     if not df.empty:
         # Layout: 2 Columns
