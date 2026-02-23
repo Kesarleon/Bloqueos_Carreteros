@@ -86,7 +86,7 @@ def clean_text(text):
 def scrape_tweets(terms=SEARCH_TERMS, limit=100, instance=None):
     """Scrapes tweets using ntscraper."""
     try:
-        scraper = Nitter(log_level=1, skip_instance_check=False, instance=instance)
+        scraper = Nitter(log_level=1, skip_instance_check=False)
     except Exception as e:
         st.error(f"Error al inicializar el scraper: {e}")
         return pd.DataFrame()
@@ -98,7 +98,7 @@ def scrape_tweets(terms=SEARCH_TERMS, limit=100, instance=None):
 
     try:
         # Scrape tweets
-        scraped_tweets = scraper.get_tweets(query, mode='term', number=limit)
+        scraped_tweets = scraper.get_tweets(query, mode='term', number=limit, instance=instance)
 
         if scraped_tweets and 'tweets' in scraped_tweets:
             for tweet in scraped_tweets['tweets']:
