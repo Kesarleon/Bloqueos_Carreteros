@@ -6,3 +6,4 @@ streamlit-folium
 wordcloud
 matplotlib
 unidecode
+tweepy
