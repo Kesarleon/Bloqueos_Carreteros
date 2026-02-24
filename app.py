@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import re
 from unidecode import unidecode
 import time
+import tweepy
 
 # Page Configuration
 st.set_page_config(layout="wide", page_title="Monitoreo Seguridad Carretera México")
@@ -82,6 +83,49 @@ def clean_text(text):
     text = text.replace('\n', ' ').strip()
     return text
 
+@st.cache_data(ttl=300)
+def scrape_tweets_api(bearer_token, terms=SEARCH_TERMS, limit=100):
+    """Scrapes tweets using the official Twitter API (Tweepy)."""
+    try:
+        client = tweepy.Client(bearer_token=bearer_token)
+        query = " OR ".join(terms) + " -is:retweet" # Exclude retweets
+
+        # Search recent tweets (limited to last 7 days for Essential access)
+        response = client.search_recent_tweets(
+            query=query,
+            max_results=limit if limit <= 100 else 100,
+            tweet_fields=['created_at', 'author_id', 'text'],
+            expansions=['author_id'],
+            user_fields=['username']
+        )
+
+        tweets_data = []
+        if response.data:
+            # Create a user mapping
+            users = {u.id: u for u in response.includes['users']} if 'users' in response.includes else {}
+
+            for tweet in response.data:
+                user = users.get(tweet.author_id)
+                username = user.username if user else "Unknown"
+
+                tweets_data.append({
+                    'Fecha': tweet.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+                    'Usuario': username,
+                    'Texto': tweet.text,
+                    'Enlace': f"https://twitter.com/{username}/status/{tweet.id}"
+                })
+        else:
+            st.warning("La API oficial no devolvió tweets para esta consulta.")
+
+        df = pd.DataFrame(tweets_data)
+        if not df.empty:
+            df['Texto_Limpio'] = df['Texto'].apply(clean_text)
+        return df
+
+    except Exception as e:
+        st.error(f"Error con la API oficial: {e}")
+        return pd.DataFrame()
+
 @st.cache_data(ttl=300)  # Cache results for 5 minutes
 def scrape_tweets(terms=SEARCH_TERMS, limit=100, instance=None):
     """Scrapes tweets using ntscraper."""
@@ -114,7 +158,7 @@ def scrape_tweets(terms=SEARCH_TERMS, limit=100, instance=None):
     except Exception as e:
         error_msg = str(e)
         if "Cannot choose from an empty sequence" in error_msg:
-             st.error("⚠️ No se encontraron instancias de Nitter disponibles. Por favor, activa el 'Modo Demostración' en la barra lateral o intenta más tarde.")
+             st.error("⚠️ No se encontraron instancias de Nitter disponibles. Por favor, usa la API Oficial, activa el 'Modo Demostración' o intenta más tarde.")
         else:
             st.error(f"Error al obtener tweets: {e}")
         return pd.DataFrame()
@@ -157,9 +201,15 @@ def main():
         st.rerun()
 
     st.sidebar.markdown("---")
+
+    # API Configuration
+    st.sidebar.subheader("Conexión Twitter")
+    bearer_token = st.sidebar.text_input("Bearer Token (API Oficial)", type="password", help="Si tienes una cuenta de desarrollador de Twitter, pega aquí tu Bearer Token para mayor fiabilidad.")
+
+    st.sidebar.markdown("---")
     use_demo_data = st.sidebar.checkbox("Usar datos de demostración", value=False, help="Actívalo si la conexión con Nitter falla.")
 
-    nitter_instance = st.sidebar.text_input("Instancia Nitter (Opcional)", placeholder="https://nitter.net", help="Si el scraping automático falla, prueba una instancia específica como 'https://nitter.poast.org'")
+    nitter_instance = st.sidebar.text_input("Instancia Nitter (Alternativa)", placeholder="https://nitter.net", help="Si no usas la API oficial y el scraping automático falla, prueba una instancia específica como 'https://nitter.poast.org'")
 
     # Load data
     if use_demo_data:
@@ -175,8 +225,12 @@ def main():
         st.info("Mostrando datos de demostración.")
     else:
         with st.spinner("Escaneando red social X..."):
-            instance_url = nitter_instance if nitter_instance else None
-            df = scrape_tweets(limit=search_limit, instance=instance_url)
+            if bearer_token:
+                st.info("Usando API Oficial de Twitter...")
+                df = scrape_tweets_api(bearer_token=bearer_token, limit=search_limit)
+            else:
+                instance_url = nitter_instance if nitter_instance else None
+                df = scrape_tweets(limit=search_limit, instance=instance_url)
 
     if not df.empty:
         # Layout: 2 Columns
